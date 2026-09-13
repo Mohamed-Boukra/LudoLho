@@ -39,7 +39,7 @@ class GameRules {
     List<Player> allPlayers, {
     bool enableBlocking = true,
   }) {
-    final movable = <Token>[];
+    var movable = <Token>[];
 
     for (final token in player.tokens) {
       final newStep = computeNewStep(token, diceValue);
@@ -54,6 +54,33 @@ class GameRules {
       }
 
       movable.add(token);
+    }
+
+    // Rule: No 6s in final stretch (step >= 39) if other tokens can move
+    if (diceValue == 6) {
+      final hasTokenBefore39 = movable.any((t) => t.step < 39);
+      if (hasTokenBefore39) {
+        movable = movable.where((t) => t.step < 39).toList();
+      }
+    }
+
+    // Rule: Mandatory capture
+    final capturingMoves = <Token>[];
+    for (final token in movable) {
+      final newStep = computeNewStep(token, diceValue);
+      if (newStep != null && newStep >= 0 && newStep <= 50) {
+        final cell = BoardPath.absolutePosition(token.color, newStep);
+        if (cell != null) {
+          final captured = captureOpponentsAt(allPlayers, token.color, cell, captureAll: true);
+          if (captured.isNotEmpty) {
+            capturingMoves.add(token);
+          }
+        }
+      }
+    }
+    
+    if (capturingMoves.isNotEmpty) {
+      movable = capturingMoves;
     }
 
     return movable;
@@ -94,8 +121,9 @@ class GameRules {
   static List<Token> captureOpponentsAt(
     List<Player> allPlayers,
     PlayerColor movingColor,
-    List<int> cell,
-  ) {
+    List<int> cell, {
+    bool captureAll = false,
+  }) {
     if (isSafeCell(cell)) return [];
 
     final captured = <Token>[];
@@ -108,8 +136,12 @@ class GameRules {
         return pos != null && pos[0] == cell[0] && pos[1] == cell[1];
       }).toList();
 
-      if (atCell.length == 1) {
-        captured.add(atCell.first);
+      if (atCell.isNotEmpty) {
+        if (captureAll) {
+          captured.addAll(atCell);
+        } else {
+          captured.add(atCell.first);
+        }
       }
     }
     return captured;

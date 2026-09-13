@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -39,6 +40,10 @@ class GameProvider extends ChangeNotifier {
   /// moved before the player has actually seen the dice settle.
   bool _isRollingDice = false;
 
+  Timer? _turnTimer;
+  int turnTimeLeft = 0;
+  static const int turnDurationSeconds = 15;
+
   // Phase 8: finishing order + whether the match ends at the first
   // winner or keeps going so every player gets a final rank.
   final List<PlayerColor> _finishOrder = [];
@@ -47,6 +52,7 @@ class GameProvider extends ChangeNotifier {
   // Phase 6: house-rule toggles.
   bool enableBlocking = true;
   bool enableExtraTurnOnCapture = true;
+  bool eatAllOnBlocked = false;
 
   bool isMuted = false;
 
@@ -118,11 +124,15 @@ class GameProvider extends ChangeNotifier {
 
   /// Sets up a fresh match with these exact [colors] (2-4, no repeats),
   /// in turn order. Color assignment happens on the Phase 7 setup screen.
-  void initGame(List<PlayerColor> colors) {
+  void initGame(List<PlayerColor> colors, {List<String>? names}) {
     assert(colors.length >= 2 && colors.length <= 4);
     assert(colors.toSet().length == colors.length, 'colors must be unique');
 
-    _players = colors.map((c) => Player(color: c)).toList();
+    _players = [];
+    for (int i = 0; i < colors.length; i++) {
+      final name = names != null && i < names.length ? names[i] : colors[i].label;
+      _players.add(Player(color: colors[i], name: name));
+    }
     _currentPlayerIndex = 0;
     _lastDiceValue = null;
     _phase = GamePhase.rollPhase;
@@ -135,9 +145,17 @@ class GameProvider extends ChangeNotifier {
     _turnEventId = 0;
     _lastTurnMessage = null;
     _finishOrder.clear();
+    _turnTimer?.cancel();
+    turnTimeLeft = 0;
 
     _persist();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _turnTimer?.cancel();
+    super.dispose();
   }
 
   // -----------------------------------------------------------------
@@ -155,6 +173,7 @@ class GameProvider extends ChangeNotifier {
     final value = _random.nextInt(6) + 1;
     _lastDiceValue = value;
     _consecutiveSixes = value == 6 ? _consecutiveSixes + 1 : 0;
+    currentPlayer.diceStats[value - 1]++;
 
     if (_consecutiveSixes == 3) {
       // Classic rule: three 6s in a row forfeits the turn entirely.
@@ -187,7 +206,42 @@ class GameProvider extends ChangeNotifier {
     await Future.delayed(diceRollDuration);
     if (!_isRollingDice) return; // superseded by a later roll/turn change
     _isRollingDice = false;
+    
+    final moves = _rawMovableTokens();
+    if (moves.length == 1) {
+      // Auto-play if only one legal move
+      moveToken(moves.first);
+    } else if (moves.isNotEmpty) {
+      // Start the turn timer only if they actually have a choice to make
+      _startTurnTimer();
+    }
+    
     notifyListeners();
+  }
+
+  void _startTurnTimer() {
+    _turnTimer?.cancel();
+    turnTimeLeft = turnDurationSeconds;
+    _turnTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (turnTimeLeft > 0) {
+        turnTimeLeft--;
+        notifyListeners();
+      } else {
+        timer.cancel();
+        _autoPassForTimeout();
+      }
+    });
+  }
+
+  void _autoPassForTimeout() {
+    if (_phase == GamePhase.movePhase && !_isAnimating) {
+      _lastDiceValue = null;
+      _lastTurnMessage = '${currentPlayer.name} ran out of time — turn skipped';
+      _turnEventId++;
+      _advanceTurn();
+      _persist();
+      notifyListeners();
+    }
   }
 
   Future<void> _autoPassIfNoLegalMoves() async {
@@ -232,6 +286,7 @@ class GameProvider extends ChangeNotifier {
       }
     }
 
+    _turnTimer?.cancel();
     _isAnimating = true;
     notifyListeners();
 
@@ -255,13 +310,16 @@ class GameProvider extends ChangeNotifier {
     if (token.isOnSharedPath) {
       final cell = BoardPath.absolutePosition(token.color, token.step)!;
       final capturedTokens =
-          GameRules.captureOpponentsAt(_players, token.color, cell);
+          GameRules.captureOpponentsAt(_players, token.color, cell, captureAll: eatAllOnBlocked);
       if (capturedTokens.isNotEmpty) {
         _lastCaptureCell = cell;
         for (final t in capturedTokens) {
           t.step = -1; // sent back to yard
+          final capturedPlayer = _players.firstWhere((p) => p.color == t.color);
+          capturedPlayer.deaths++;
         }
         captured = true;
+        currentPlayer.kills += capturedTokens.length;
         _captureEventId++;
         _lastCaptureMessage = capturedTokens.length == 1
             ? '${token.color.label} captured ${capturedTokens.first.color.label}\'s token!'
@@ -338,8 +396,12 @@ class GameProvider extends ChangeNotifier {
   // -----------------------------------------------------------------
 
   Map<String, dynamic> toJson() => {
+        'names': _players.map((p) => p.name).toList(),
         'colors': _players.map((p) => p.color.key).toList(),
         'tokens': _players.map((p) => p.tokens.map((t) => t.step).toList()).toList(),
+        'kills': _players.map((p) => p.kills).toList(),
+        'deaths': _players.map((p) => p.deaths).toList(),
+        'diceStats': _players.map((p) => p.diceStats).toList(),
         'currentPlayerIndex': _currentPlayerIndex,
         'lastDiceValue': _lastDiceValue,
         'phase': _phase.name,
@@ -347,16 +409,29 @@ class GameProvider extends ChangeNotifier {
         'enableBlocking': enableBlocking,
         'enableExtraTurnOnCapture': enableExtraTurnOnCapture,
         'endOnFirstWinner': endOnFirstWinner,
+        'eatAllOnBlocked': eatAllOnBlocked,
         'finishOrder': _finishOrder.map((c) => c.key).toList(),
         'isMuted': isMuted,
       };
 
   void _restoreFromJson(Map<String, dynamic> json) {
     final colorKeys = List<String>.from(json['colors'] as List);
-    _players = colorKeys.map((k) => Player(color: playerColorFromKey(k))).toList();
+    final names = (json['names'] as List?)?.cast<String>() ?? colorKeys;
+    
+    _players = [];
+    for (int i = 0; i < colorKeys.length; i++) {
+      _players.add(Player(color: playerColorFromKey(colorKeys[i]), name: names[i]));
+    }
 
     final tokensData = json['tokens'] as List;
+    final killsData = (json['kills'] as List?) ?? List.filled(_players.length, 0);
+    final deathsData = (json['deaths'] as List?) ?? List.filled(_players.length, 0);
+    final diceStatsData = (json['diceStats'] as List?) ?? List.filled(_players.length, List.filled(6, 0));
+    
     for (int i = 0; i < _players.length; i++) {
+      _players[i].kills = killsData[i] as int;
+      _players[i].deaths = deathsData[i] as int;
+      _players[i].diceStats = List<int>.from(diceStatsData[i] as List);
       final steps = List<int>.from(tokensData[i] as List);
       for (int j = 0; j < steps.length && j < _players[i].tokens.length; j++) {
         _players[i].tokens[j].step = steps[j];
@@ -370,6 +445,7 @@ class GameProvider extends ChangeNotifier {
     enableBlocking = (json['enableBlocking'] as bool?) ?? true;
     enableExtraTurnOnCapture = (json['enableExtraTurnOnCapture'] as bool?) ?? true;
     endOnFirstWinner = (json['endOnFirstWinner'] as bool?) ?? true;
+    eatAllOnBlocked = (json['eatAllOnBlocked'] as bool?) ?? false;
     isMuted = (json['isMuted'] as bool?) ?? false;
     SoundService.instance.muted = isMuted;
     _finishOrder

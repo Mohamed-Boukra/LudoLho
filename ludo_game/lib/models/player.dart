@@ -4,11 +4,18 @@ import 'token.dart';
 /// One participant in the match: a color plus their 4 tokens.
 class Player {
   final PlayerColor color;
+  final String name;
   final bool isAI;
   final List<Token> tokens;
+  int kills = 0;
+  int deaths = 0;
+  List<int> diceStats = List.filled(6, 0);
 
-  Player({required this.color, this.isAI = false})
-      : tokens = List.generate(4, (i) => Token(color: color, slot: i));
+  int get score => kills - deaths;
+
+  Player({required this.color, this.isAI = false, String? name})
+      : name = name ?? color.label,
+        tokens = List.generate(4, (i) => Token(color: color, slot: i));
 
   bool get hasWon => tokens.every((t) => t.isFinished);
 

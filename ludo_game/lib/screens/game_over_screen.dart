@@ -39,13 +39,20 @@ class _GameOverScreenState extends State<GameOverScreen> {
   }
 
   List<PlayerColor> _finalStandings(GameProvider provider) {
-    final standings = <PlayerColor>[...provider.finishOrder];
-    for (final player in provider.players) {
-      if (!standings.contains(player.color)) {
-        standings.add(player.color);
+    final players = List.of(provider.players);
+    players.sort((a, b) {
+      if (a.score != b.score) {
+        return b.score.compareTo(a.score);
       }
-    }
-    return standings;
+      final aFinishIndex = provider.finishOrder.indexOf(a.color);
+      final bFinishIndex = provider.finishOrder.indexOf(b.color);
+      
+      final aIndex = aFinishIndex == -1 ? 999 : aFinishIndex;
+      final bIndex = bFinishIndex == -1 ? 999 : bFinishIndex;
+      
+      return aIndex.compareTo(bIndex);
+    });
+    return players.map((p) => p.color).toList();
   }
 
   @override
@@ -90,7 +97,7 @@ class _GameOverScreenState extends State<GameOverScreen> {
                           colors: [Colors.white, winner.displayColor],
                         ).createShader(rect),
                         child: Text(
-                          '${winner.label} wins!',
+                          '${provider.players.firstWhere((p) => p.color == winner).name} wins!',
                           style: TextStyle(
                             fontSize: 18.sp,
                             fontWeight: FontWeight.w800,
@@ -106,7 +113,7 @@ class _GameOverScreenState extends State<GameOverScreen> {
                           ? const SizedBox.shrink()
                           : ListView.separated(
                               itemCount: standings.length,
-                              separatorBuilder: (_, _) => SizedBox(height: 10.h),
+                              separatorBuilder: (_, __) => SizedBox(height: 10.h),
                               itemBuilder: (context, index) {
                                 return _StandingRow(rank: index + 1, color: standings[index])
                                     .animate()
@@ -337,8 +344,13 @@ class _StandingRow extends StatelessWidget {
             ),
           ),
           Text(
-            color.label,
+            context.read<GameProvider>().players.firstWhere((p) => p.color == color).name,
             style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: Colors.white),
+          ),
+          const Spacer(),
+          Text(
+            'Score: ${context.read<GameProvider>().players.firstWhere((p) => p.color == color).score}',
+            style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: AppColors.redLight),
           ),
         ],
       ),

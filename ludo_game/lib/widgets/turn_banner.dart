@@ -3,7 +3,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:ludo_game/models/player_color.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
-import '../models/game_phase.dart';
 import '../providers/game_provider.dart';
 
 /// "Whose turn is it" banner — a glassy, color-tinted pill that slides
@@ -21,7 +20,8 @@ class TurnBanner extends StatelessWidget {
     }
 
     final color = provider.currentPlayer.color;
-    final String phaseText = _phaseText(provider);
+    final name = provider.currentPlayer.name;
+    final timeLeft = provider.turnTimeLeft;
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 320),
@@ -36,9 +36,7 @@ class TurnBanner extends StatelessWidget {
         );
       },
       child: Container(
-        key: ValueKey(
-          '${color.key}_${provider.phase}_${provider.isAnimating}_${provider.isRollingDice}',
-        ),
+        key: ValueKey('${color.key}_${name}_$timeLeft'),
         padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(28.r),
@@ -64,10 +62,10 @@ class TurnBanner extends StatelessWidget {
             SizedBox(width: 8.w),
             Flexible(
               child: Text(
-                "${color.label}'s turn  •  $phaseText",
+                "${name}'s turn${timeLeft > 0 ? ' • $timeLeft s' : ''}",
                 style: TextStyle(
-                  fontSize: 13.sp,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w800,
                   color: AppColors.appBarText,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -77,22 +75,6 @@ class TurnBanner extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _phaseText(GameProvider provider) {
-    if (provider.phase == GamePhase.rollPhase) {
-      return 'Tap the dice to roll';
-    }
-    if (provider.isRollingDice) {
-      return 'Rolling…';
-    }
-    if (provider.isAnimating) {
-      return 'Moving…';
-    }
-    if (provider.movableTokens.isEmpty) {
-      return 'No legal moves — passing…';
-    }
-    return 'Rolled ${provider.lastDiceValue} — tap a glowing token';
   }
 }
 

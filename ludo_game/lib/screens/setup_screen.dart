@@ -26,10 +26,23 @@ class _SetupScreenState extends State<SetupScreen> {
   ];
 
   List<PlayerColor> _slotColors = _defaultOrder.take(4).toList();
+  final List<TextEditingController> _nameControllers = List.generate(
+    4,
+    (i) => TextEditingController(text: 'Player ${i + 1}'),
+  );
+
+  @override
+  void dispose() {
+    for (var c in _nameControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   bool _enableBlocking = true;
   bool _enableExtraTurnOnCapture = true;
-  bool _endOnFirstWinner = true;
+  bool _eatAllOnBlocked = false;
+  bool _endOnFirstWinner = false;
 
   void _setPlayerCount(int count) {
     setState(() {
@@ -62,8 +75,14 @@ class _SetupScreenState extends State<SetupScreen> {
     final provider = context.read<GameProvider>();
     provider.enableBlocking = _enableBlocking;
     provider.enableExtraTurnOnCapture = _enableExtraTurnOnCapture;
+    provider.eatAllOnBlocked = _eatAllOnBlocked;
     provider.endOnFirstWinner = _endOnFirstWinner;
-    provider.initGame(_slotColors);
+    
+    final names = _nameControllers.sublist(0, _slotColors.length)
+        .map((c) => c.text.trim().isEmpty ? 'Unknown' : c.text.trim())
+        .toList();
+        
+    provider.initGame(_slotColors, names: names);
     Navigator.of(context).pushReplacement(
       FadeScaleRoute(page: GameScreen(colors: _slotColors)),
     );
@@ -133,6 +152,7 @@ class _SetupScreenState extends State<SetupScreen> {
                         child: _PlayerSlotRow(
                           slotIndex: index,
                           selectedColor: _slotColors[index],
+                          nameController: _nameControllers[index],
                           onColorSelected: (c) => _selectColorForSlot(index, c),
                         )
                             .animate()
@@ -162,6 +182,12 @@ class _SetupScreenState extends State<SetupScreen> {
                       subtitle: 'Send an opponent home and roll again.',
                       value: _enableExtraTurnOnCapture,
                       onChanged: (v) => setState(() => _enableExtraTurnOnCapture = v),
+                    ),
+                    _HouseRuleTile(
+                      title: 'Eat All',
+                      subtitle: 'When landing on multiple identical opponents, eat them all instead of just one.',
+                      value: _eatAllOnBlocked,
+                      onChanged: (v) => setState(() => _eatAllOnBlocked = v),
                     ),
                     _HouseRuleTile(
                       title: 'Play for full standings',
@@ -254,11 +280,13 @@ class _HouseRuleTile extends StatelessWidget {
 class _PlayerSlotRow extends StatelessWidget {
   final int slotIndex;
   final PlayerColor selectedColor;
+  final TextEditingController nameController;
   final ValueChanged<PlayerColor> onColorSelected;
 
   const _PlayerSlotRow({
     required this.slotIndex,
     required this.selectedColor,
+    required this.nameController,
     required this.onColorSelected,
   });
 
@@ -274,12 +302,39 @@ class _PlayerSlotRow extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 78.w,
-            child: Text(
-              'Player ${slotIndex + 1}',
-              style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
+            width: 90.w,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Name',
+                  style: TextStyle(
+                    fontSize: 10.sp,
+                    color: Colors.black45,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                TextField(
+                  controller: nameController,
+                  maxLength: 12,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    counterText: '',
+                    contentPadding: EdgeInsets.symmetric(vertical: 4.h),
+                    border: const UnderlineInputBorder(),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(
+                        color: selectedColor.displayColor,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                  style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
+                ),
+              ],
             ),
           ),
+          SizedBox(width: 8.w),
           Expanded(
             child: Wrap(
               spacing: 10.w,

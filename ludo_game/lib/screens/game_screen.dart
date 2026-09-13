@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -9,7 +10,6 @@ import '../providers/game_provider.dart';
 import '../utils/page_transitions.dart';
 import '../widgets/dice_widget.dart';
 import '../widgets/ludo_board.dart';
-import '../widgets/turn_banner.dart';
 import 'game_over_screen.dart';
 
 /// The main gameplay screen: turn banner, the 3D board, and the dice —
@@ -146,6 +146,11 @@ class _GameScreenState extends State<GameScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Statistics',
+            icon: const Icon(Icons.bar_chart),
+            onPressed: provider.isInitialized ? () => _showStatsDialog(context, provider) : null,
+          ),
+          IconButton(
             tooltip: provider.isMuted ? 'Unmute' : 'Mute',
             icon: Icon(provider.isMuted ? Icons.volume_off : Icons.volume_up),
             onPressed: provider.isInitialized ? provider.toggleMute : null,
@@ -167,7 +172,7 @@ class _GameScreenState extends State<GameScreen> {
             child: Column(
               children: [
                 SizedBox(height: kToolbarHeight - 30.h),
-                const TurnBanner(),
+                const _LiveRankBar(),
                 SizedBox(height: 10.h),
                 Expanded(
                   child: LayoutBuilder(
@@ -178,22 +183,250 @@ class _GameScreenState extends State<GameScreen> {
                               : constraints.maxHeight;
                       final double boardSize = maxSize * 0.94;
 
-                      return Center(
-                        child: SizedBox(
-                          width: boardSize,
-                          height: boardSize,
-                          child: const LudoBoard(),
+                      return SizedBox(
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            SizedBox(
+                              width: boardSize,
+                              height: boardSize,
+                              child: const LudoBoard(),
+                            ),
+                            if (provider.isInitialized)
+                              _ActivePlayerOverlay(
+                                boardSize: boardSize,
+                                maxWidth: constraints.maxWidth,
+                                maxHeight: constraints.maxHeight,
+                              ),
+                          ],
                         ),
                       );
                     },
                   ),
                 ),
-                SizedBox(height: 16.h),
-                const DiceWidget(),
                 SizedBox(height: 12.h),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LiveRankBar extends StatelessWidget {
+  const _LiveRankBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<GameProvider>();
+    if (!provider.isInitialized) return const SizedBox.shrink();
+
+    final players = List.of(provider.players);
+    players.sort((a, b) => b.score.compareTo(a.score));
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: players.map((p) {
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: 4.w),
+          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+          decoration: BoxDecoration(
+            color: p.color.displayColor.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(12.r),
+            border: Border.all(color: p.color.displayColor.withValues(alpha: 0.5)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 10.w,
+                height: 10.w,
+                decoration: BoxDecoration(
+                  color: p.color.displayColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              SizedBox(width: 4.w),
+              Text(
+                '${p.score}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12.sp,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+void _showStatsDialog(BuildContext context, GameProvider provider) {
+  showDialog(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        backgroundColor: AppColors.scaffoldBackground,
+        title: Text(
+          'Dice Statistics',
+          style: TextStyle(color: AppColors.appBarText, fontWeight: FontWeight.bold),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: provider.players.map((p) {
+              return Padding(
+                padding: EdgeInsets.only(bottom: 12.h),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 12.w,
+                          height: 12.w,
+                          decoration: BoxDecoration(color: p.color.displayColor, shape: BoxShape.circle),
+                        ),
+                        SizedBox(width: 8.w),
+                        Text(
+                          p.name,
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.sp),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4.h),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: List.generate(6, (i) {
+                        return Column(
+                          children: [
+                            Text('${i + 1}', style: TextStyle(color: Colors.white54, fontSize: 10.sp)),
+                            Text('${p.diceStats[i]}', style: TextStyle(color: Colors.white, fontSize: 12.sp, fontWeight: FontWeight.bold)),
+                          ],
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('CLOSE', style: TextStyle(color: AppColors.redLight)),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _ActivePlayerOverlay extends StatelessWidget {
+  final double boardSize;
+  final double maxWidth;
+  final double maxHeight;
+  const _ActivePlayerOverlay({
+    required this.boardSize,
+    required this.maxWidth,
+    required this.maxHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<GameProvider>();
+    if (!provider.isInitialized) return const SizedBox.shrink();
+
+    final currentPlayer = provider.currentPlayer;
+    final colorKey = currentPlayer.color.key;
+    final timeLeft = provider.turnTimeLeft;
+
+    final double verticalMargin = (maxHeight - boardSize) / 2;
+    final double horizontalMargin = (maxWidth - boardSize) / 2;
+
+    // Push the overlay completely above or below the board
+    final double bottomForTopPlayers = verticalMargin + boardSize + 10;
+    // For bottom players: just below the board but not off-screen
+    final double bottomForBottomPlayers = (verticalMargin - 110.0).clamp(0.0, double.infinity);
+    final double sideOffsetAmount = horizontalMargin - 10;
+
+    double? top;
+    double? left;
+    double? bottom;
+    double? right;
+
+    switch (colorKey) {
+      case 'red':
+        bottom = bottomForTopPlayers;
+        left = sideOffsetAmount;
+        break;
+      case 'green':
+        bottom = bottomForTopPlayers;
+        right = sideOffsetAmount;
+        break;
+      case 'blue':
+        bottom = bottomForBottomPlayers;
+        right = sideOffsetAmount;
+        break;
+      case 'yellow':
+        bottom = bottomForBottomPlayers;
+        left = sideOffsetAmount;
+        break;
+    }
+
+    // Whether the player is on the bottom (blue, yellow) or top (red, green)
+    final isTop = (colorKey == 'red' || colorKey == 'green');
+
+    final nameAndTimer = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          currentPlayer.name,
+          style: TextStyle(
+            color: currentPlayer.color.displayColor,
+            fontWeight: FontWeight.bold,
+            fontSize: 16.sp,
+          ),
+        ),
+        Text(
+          '${timeLeft}s',
+          style: TextStyle(
+            color: timeLeft <= 5 ? Colors.redAccent : Colors.white70,
+            fontWeight: FontWeight.bold,
+            fontSize: 14.sp,
+          ),
+        ),
+      ],
+    );
+
+    return Positioned(
+      top: top,
+      bottom: bottom,
+      left: left,
+      right: right,
+      child: IgnorePointer(
+        ignoring: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: isTop 
+            ? [
+                nameAndTimer,
+                SizedBox(height: 8.h),
+                const SizedBox(width: 80, height: 80, child: DiceWidget()),
+              ]
+            : [
+                const SizedBox(width: 80, height: 80, child: DiceWidget()),
+                SizedBox(height: 8.h),
+                nameAndTimer,
+              ],
         ),
       ),
     );

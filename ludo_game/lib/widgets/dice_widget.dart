@@ -249,7 +249,7 @@ class _DiceCube3DState extends State<_DiceCube3D> with SingleTickerProviderState
                     transform: Matrix4.identity()
                       ..rotateY(f.spec.rotY)
                       ..rotateX(f.spec.rotX)
-                      ..translate(0.0, 0.0, half),
+                      ..translateByVector3(Vector3(0.0, 0.0, half)),
                     child: Opacity(
                       opacity: opacity,
                       child: _DiceFace(
