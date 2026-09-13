@@ -66,10 +66,8 @@ class _GameScreenState extends State<GameScreen> {
       _lastShownCaptureEventId = provider.captureEventId;
       message = provider.lastCaptureMessage;
       isCapture = true;
-    } else if (provider.turnEventId != _lastShownTurnEventId) {
-      _lastShownTurnEventId = provider.turnEventId;
-      message = provider.lastTurnMessage;
     }
+    
     if (message == null) return;
 
     if (isCapture) _buzz();
@@ -295,7 +293,7 @@ void _showStatsDialog(BuildContext context, GameProvider provider) {
                         SizedBox(width: 8.w),
                         Text(
                           p.name,
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.sp),
+                          style: TextStyle(color: p.color.displayColor, fontWeight: FontWeight.bold, fontSize: 14.sp),
                         ),
                       ],
                     ),
@@ -303,11 +301,35 @@ void _showStatsDialog(BuildContext context, GameProvider provider) {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: List.generate(6, (i) {
-                        return Column(
-                          children: [
-                            Text('${i + 1}', style: TextStyle(color: Colors.white54, fontSize: 10.sp)),
-                            Text('${p.diceStats[i]}', style: TextStyle(color: Colors.white, fontSize: 12.sp, fontWeight: FontWeight.bold)),
-                          ],
+                        return Container(
+                          width: 36.w,
+                          padding: EdgeInsets.symmetric(vertical: 6.h),
+                          decoration: BoxDecoration(
+                            color: p.color.displayColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8.r),
+                            border: Border.all(color: p.color.displayColor.withValues(alpha: 0.4)),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                '⚀⚁⚂⚃⚄⚅'[i],
+                                style: TextStyle(
+                                  color: p.color.displayColor,
+                                  fontSize: 18.sp,
+                                  height: 1.0,
+                                ),
+                              ),
+                              SizedBox(height: 2.h),
+                              Text(
+                                '${p.diceStats[i]}',
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontSize: 13.sp,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
                         );
                       }),
                     ),
